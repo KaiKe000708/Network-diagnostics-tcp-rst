@@ -1,26 +1,41 @@
-# Estudo de Caso: Diagnóstico de Conectividade a um Serviço Externo em Rede Corporativa
+# 🔍 Diagnóstico de Rede: um RST TCP injetado por firewall
 
-> Exercício prático de diagnóstico de rede. A partir de um comportamento de conectividade observado em um serviço externo (a rede social **Instagram**, usada aqui como alvo de teste real), a investigação percorre o método DNS, TCP, análise de pacotes até a causa-raiz: um reset TCP injetado por firewall. O foco é a **metodologia de diagnóstico** e a leitura de pacotes, não o serviço em si.
+Estudo prático de diagnóstico de rede. A partir de um comportamento de conectividade observado em um serviço externo (a rede social **Instagram**, usada aqui como alvo de teste real), a investigação percorre o método (DNS → TCP → análise de pacotes) até a causa-raiz: um **reset TCP forjado por firewall**. O foco é a **metodologia de diagnóstico** e a leitura de pacotes, não o serviço em si.
+
+![Windows](https://img.shields.io/badge/Windows-10-0078D6?logo=windows&logoColor=white)
+![PowerShell](https://img.shields.io/badge/PowerShell-5391FE?logo=powershell&logoColor=white)
+![Wireshark](https://img.shields.io/badge/Wireshark-4.4.8-1679A7?logo=wireshark&logoColor=white)
+![TCP/IP](https://img.shields.io/badge/TCP%2FIP-an%C3%A1lise%20de%20pacotes-0A66C2)
+![Causa-raiz](https://img.shields.io/badge/causa--raiz-RST%20injetado-critical)
+
+![Captura mostrando SYN seguido de RST, ACK](evidencias/03-captura-syn-rst-ttl63.png)
+
+> **A imagem acima resume o caso:** cada `SYN` do cliente (porta 59409 → 443) é respondido por um `RST, ACK` (443 → 59409). No painel de bytes, a linha `0010` traz `... 40 00 3f 06 ...`: o `3f` é o **TTL 63** do pacote de reset, a assinatura que entrega o firewall. Endereços internos e MACs redigidos; IP público da Meta mantido.
 
 ---
 
-## Objetivo e contexto
+## 🧩 Resumo
+
+| | |
+|---|---|
+| **O que é** | Estudo de redes documentando, de ponta a ponta, o diagnóstico de um problema de conectividade real. |
+| **Alvo de teste** | Serviço externo público (Instagram), cujo carregamento de mídia apresentava comportamento irregular na rede. |
+| **Causa-raiz** | O firewall **rejeita ativamente** as conexões à CDN de mídia da Meta (`*.cdninstagram.com`), respondendo com um `RST` forjado. |
+| **Prova definitiva** | Análise do **TTL** do pacote de reset: `TTL = 63`, origem a **um único salto** (o firewall local), não dos servidores da Meta. |
+| **Ferramentas** | `nslookup`, `tracert`, `Test-NetConnection` (PowerShell), Wireshark, DevTools. |
+| **Escopo** | Apenas **observação do tráfego da própria máquina**. Nenhum controle de segurança foi testado, alterado ou contornado. |
+
+---
+
+## 🎯 Objetivo e contexto
 
 Este documento registra um **estudo de redes** conduzido com fins de aprendizado e documentação de método. O objetivo foi exercitar, de ponta a ponta, o diagnóstico de um problema de conectividade: formular hipóteses, testá-las com ferramentas de rede e chegar a uma conclusão sustentada por evidência.
 
-Como alvo de teste foi escolhido um serviço externo público e amplamente conhecido — a rede social **Instagram** —, cujo carregamento de mídia apresentava um comportamento irregular na rede, o que o tornava um bom caso real para a prática. Todo o trabalho se limitou à **observação do tráfego da própria máquina** com ferramentas de diagnóstico padrão; nenhum controle de segurança foi testado, alterado ou contornado.
+Como alvo de teste foi escolhido um serviço externo público e amplamente conhecido (a rede social **Instagram**), cujo carregamento de mídia apresentava um comportamento irregular na rede, o que o tornava um bom caso real para a prática. Todo o trabalho se limitou à **observação do tráfego da própria máquina** com ferramentas de diagnóstico padrão; nenhum controle de segurança foi testado, alterado ou contornado.
 
 ---
 
-## Resumo (TL;DR)
-
-Ao diagnosticar a conectividade a um serviço externo (Instagram), observou-se que parte da mídia (imagens e vídeos) não carregava, enquanto o site em si abria normalmente. A investigação mostrou que o firewall da rede **rejeita ativamente** as conexões aos servidores de mídia da Meta (CDN `*.cdninstagram.com`), respondendo ao `SYN` do cliente com um pacote `RST` **forjado**, se passando pelo servidor de destino.
-
-A prova definitiva veio da análise do campo **TTL** do pacote de reset: ele chegou com `TTL = 63`, indicando origem a **um único salto** de distância (o próprio firewall), e não dos servidores da Meta, que estariam a mais de uma dezena de saltos pela internet.
-
----
-
-## Ambiente
+## 🧱 Ambiente
 
 | Item | Valor |
 |---|---|
@@ -33,7 +48,7 @@ A prova definitiva veio da análise do campo **TTL** do pacote de reset: ele che
 
 ---
 
-## Sintoma observado
+## 🩺 Sintoma observado
 
 O serviço escolhido como alvo de teste (Instagram) apresentava o seguinte comportamento na rede:
 
@@ -48,7 +63,7 @@ O serviço escolhido como alvo de teste (Instagram) apresentava o seguinte compo
 
 ---
 
-## Metodologia
+## 🧪 Metodologia
 
 ### 1. DNS está funcionando?
 
@@ -62,8 +77,8 @@ Resultado: o nome resolveu normalmente para um IP válido da Meta (`57.144.170.1
 ### 2. O caminho até o destino
 
 ```
-tracert -d 57.144.170.192      # alvo bloqueado → para logo após o 1º salto (gateway)
-tracert -d -h 6 8.8.8.8        # controle → percorre todos os saltos normalmente
+tracert -d 57.144.170.192      # alvo bloqueado: para logo após o 1º salto (gateway)
+tracert -d -h 6 8.8.8.8        # controle: percorre todos os saltos normalmente
 ```
 
 O `tracert` para o alvo morre no primeiro salto, enquanto o teste de controle (8.8.8.8) atravessa a rede sem problema.
@@ -72,7 +87,7 @@ O `tracert` para o alvo morre no primeiro salto, enquanto o teste de controle (8
 ### 3. A conexão TCP na porta 443 completa?
 
 ```powershell
-Test-NetConnection 57.144.170.192 -Port 443   # TcpTestSucceeded : False  (bloqueado)
+Test-NetConnection 57.144.170.192 -Port 443    # TcpTestSucceeded : False  (bloqueado)
 Test-NetConnection www.instagram.com -Port 443 # TcpTestSucceeded : True   (funciona)
 ```
 
@@ -95,32 +110,28 @@ Origem           Destino          Protocolo  Info
 57.144.170.192 → 192.168.x        TCP        [RST, ACK]   Seq=1 Ack=2055907903 Win=0 Len=0
 ```
 
-O cliente envia `SYN`; a resposta é um `RST, ACK` (conexão recusada), e não o `SYN, ACK` esperado de um servidor real. O cliente reenvia o `SYN` várias vezes e recebe `RST` toda vez.
-
-![Lista de pacotes mostrando SYN seguido de RST, ACK](evidencias/03-captura-syn-rst-ttl63.png)
-
-*Cada `SYN` (porta 59409 → 443) é respondido por um `RST, ACK` (443 → 59409). No painel de bytes, a linha `0010` traz `... 40 00 3f 06 ...`: o `3f` é o TTL = 63 do pacote de reset. Endereços internos e MACs redigidos; IP público da Meta mantido.*
+O cliente envia `SYN`; a resposta é um `RST, ACK` (conexão recusada), e não o `SYN, ACK` esperado de um servidor real. O cliente reenvia o `SYN` várias vezes e recebe `RST` toda vez. *(A captura está no topo deste documento.)*
 
 ---
 
-## Análise: o reset é injetado (forjado)
+## 🔬 Análise: o reset é injetado (forjado)
 
 Três indícios apontam que o `RST` **não** veio do servidor da Meta, mas de um equipamento intermediário:
 
-1. **Latência baixa demais** — o `RST` volta em ~67 ms, incompatível com um servidor distante.
-2. **Assinatura do pacote** — `RST, ACK` com `Win=0` e um número de `ACK` arbitrário e alto é padrão clássico de reset injetado por firewall/IPS.
-3. **TTL — a prova definitiva:**
+1. **Latência baixa demais:** o `RST` volta em ~67 ms, incompatível com um servidor distante.
+2. **Assinatura do pacote:** `RST, ACK` com `Win=0` e um número de `ACK` arbitrário e alto é padrão clássico de reset injetado por firewall/IPS.
+3. **TTL, a prova definitiva:**
 
 O pacote `RST` chegou com **`TTL = 63`** (lido no cabeçalho IP; byte `3f` em hexadecimal).
 
 - Equipamentos de rede baseados em Linux iniciam o TTL em **64**.
 - Cada salto (roteador) decrementa o TTL em 1.
 - `63 = 64 − 1` → **um único salto de distância**: o firewall/gateway local.
-- Um pacote legítimo vindo dos servidores da Meta cruzaria a internet (mais de 10 saltos) e chegaria com TTL bem menor (tipicamente ~48–52).
+- Um pacote legítimo vindo dos servidores da Meta cruzaria a internet (mais de 10 saltos) e chegaria com TTL bem menor (tipicamente de 48 a 52).
 
 ![Detalhe do pacote SYN de saída com Time to Live 128](evidencias/02-pacote-syn-ttl128.png)
 
-*O `SYN` de saída parte com `Time to Live: 128` (padrão do Windows), confirmando a tabela de TTL inicial. O `RST` que retorna chega com TTL 63 — assinatura de origem a um salto, o firewall local.*
+*O `SYN` de saída parte com `Time to Live: 128` (padrão do Windows), confirmando a tabela de TTL inicial. O `RST` que retorna chega com TTL 63: assinatura de origem a um salto, o firewall local.*
 
 **Portanto:** o firewall intercepta o `SYN` e responde um `RST` falsificado com o IP de origem da Meta, encerrando a conexão antes que ela saia da rede local.
 
@@ -136,7 +147,7 @@ O `SYN` de saída deste caso tinha `TTL = 128` (Windows), confirmando a tabela.
 
 ---
 
-## Conclusão
+## ✅ Conclusão
 
 O firewall corporativo está configurado com uma regra de **reject** para os servidores de mídia (CDN) da Meta na faixa `57.144.x`. Isso explica todos os sintomas:
 
@@ -148,17 +159,17 @@ A resolução é administrativa (ajuste da regra pela equipe de TI), não técni
 
 ---
 
-## O que este caso ensina
+## 🎓 O que este caso ensina
 
 - **Separar camadas:** "o nome resolve" (DNS) é diferente de "a conexão abre" (TCP). Diagnosticar exige testar cada uma.
 - **Drop vs. Reject:** um firewall pode *descartar em silêncio* (timeout) ou *rejeitar ativamente* (RST). Este caso é reject.
 - **RST injection:** firewalls forjam pacotes de reset com o IP do destino para encerrar conexões. Detectável por latência e TTL.
-- **Análise de TTL:** comparar o TTL recebido com o TTL inicial esperado revela a distância real da origem — e expõe pacotes forjados.
+- **Análise de TTL:** comparar o TTL recebido com o TTL inicial esperado revela a distância real da origem e expõe pacotes forjados.
 - **CDN:** serviços grandes servem conteúdo de dezenas de servidores; bloquear parte deles quebra o serviço parcialmente.
 
 ---
 
-## Como reproduzir (laboratório seguro)
+## 🧰 Como reproduzir (laboratório seguro)
 
 Para estudar drop vs. reject e injeção de RST sem tocar em rede de produção:
 
@@ -169,6 +180,6 @@ Para estudar drop vs. reject e injeção de RST sem tocar em rede de produção:
 
 ---
 
-## Nota sobre privacidade
+## 🔒 Nota sobre privacidade
 
-IPs privados internos, MACs de equipamentos, nome de usuário e domínio interno foram redigidos — no texto e com tarjas pretas nas imagens da pasta `evidencias/`. Os IPs públicos da Meta foram mantidos por serem informação pública. Nenhum controle de segurança foi contornado; toda a captura é do tráfego da própria máquina, para fins de diagnóstico e estudo.
+IPs privados internos, MACs de equipamentos, nome de usuário e domínio interno foram redigidos no texto e com tarjas pretas nas imagens da pasta `evidencias/`. Os IPs públicos da Meta foram mantidos por serem informação pública. Nenhum controle de segurança foi contornado; toda a captura é do tráfego da própria máquina, para fins de diagnóstico e estudo.
