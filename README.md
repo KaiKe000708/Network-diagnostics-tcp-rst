@@ -1,6 +1,6 @@
 # Estudo de Caso: Diagnóstico de Conectividade a um Serviço Externo em Rede Corporativa
 
-> Exercício prático de diagnóstico de rede. A partir de um comportamento de conectividade observado em um serviço externo (a rede social **Instagram**, usada aqui como alvo de teste real), a investigação percorre o método — DNS, TCP, análise de pacotes — até a causa-raiz: um reset TCP injetado por firewall. O foco é a **metodologia de diagnóstico** e a leitura de pacotes, não o serviço em si.
+> Exercício prático de diagnóstico de rede. A partir de um comportamento de conectividade observado em um serviço externo (a rede social **Instagram**, usada aqui como alvo de teste real), a investigação percorre o método DNS, TCP, análise de pacotes até a causa-raiz: um reset TCP injetado por firewall. O foco é a **metodologia de diagnóstico** e a leitura de pacotes, não o serviço em si.
 
 ---
 
